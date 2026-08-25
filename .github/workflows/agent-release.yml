@@ -1,6 +1,10 @@
 name: Release Binaries
 
-# Fires when a GitHub release is published (draft → published, or direct publish).
+# Fires when you publish a release in the GitHub UI. Publishing is what creates
+# the tag, so this and docker.yml (on the tag push) run in parallel off the same
+# action. Both pull the release notes out of the release body and compile them
+# into the binaries they build.
+#
 # NOTE: the `tags:` filter is not a valid key under `on.release` in GitHub Actions
 # and was silently ignored. If you want to restrict by tag pattern, add
 # `if: startsWith(github.event.release.tag_name, 'v')` to each job.
@@ -10,6 +14,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  TAG_NAME: ${{ github.event.release.tag_name }}
 
 jobs:
   agent:
@@ -43,10 +50,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
+      - name: Resolve version
+        id: ctx
+        uses: ./.github/actions/release-context
+        with:
+          token: ${{ github.token }}
+          tag: ${{ env.TAG_NAME }}
+          fetch-notes: 'false'
+
       - name: Set up Go
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
         with:
           go-version-file: 'agent-source-code/go.mod'
+          cache-dependency-path: 'agent-source-code/go.sum'
 
       - name: Download dependencies
         working-directory: agent-source-code
@@ -60,6 +76,9 @@ jobs:
           GOARM: ${{ (matrix.goos == 'linux' || matrix.goos == 'freebsd') && matrix.goarch == 'arm' && '6' || '' }}
           CGO_ENABLED: 0
           PATCHMON_SIGNING_PUBLIC_KEY: ${{ vars.PATCHMON_SIGNING_PUBLIC_KEY }}
+          # Already v-stripped; diagnostics.go prints "v%s" and would otherwise
+          # emit "vv2.0.0".
+          VERSION: ${{ steps.ctx.outputs.version }}
         run: |
           if [ -z "${PATCHMON_SIGNING_PUBLIC_KEY}" ]; then
             echo "❌ Error: PATCHMON_SIGNING_PUBLIC_KEY is not set. Set it as a repository variable before releasing."
@@ -67,10 +86,6 @@ jobs:
           fi
           OUTPUT_BASE="patchmon-agent-${{ matrix.goos }}-${{ matrix.goarch }}"
           OUTPUT_NAME="${OUTPUT_BASE}${{ matrix.goos == 'windows' && '.exe' || '' }}"
-          # Strip leading "v" so "v2.0.0" becomes "2.0.0" — diagnostics.go prints
-          # "v%s" and would otherwise emit "vv2.0.0".
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION="${VERSION#v}"
           go build -buildvcs=false \
             -ldflags="-s -w -X patchmon-agent/internal/pkgversion.Version=${VERSION} -X patchmon-agent/internal/pkgversion.SigningPublicKey=${PATCHMON_SIGNING_PUBLIC_KEY}" \
             -o "${OUTPUT_NAME}" ./cmd/patchmon-agent
@@ -187,7 +202,7 @@ jobs:
       - name: Upload agent binary to release
         uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ env.TAG_NAME }}
           files: |
             agent-source-code/patchmon-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
             agent-source-code/patchmon-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}.minisig
@@ -220,17 +235,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
+      # Resolves the version and writes the release notes from the GitHub
+      # release into release_notes_data/ so //go:embed compiles them into the
+      # binary. Nothing is committed.
+      - name: Resolve version and inject release notes
+        id: ctx
+        uses: ./.github/actions/release-context
+        with:
+          token: ${{ github.token }}
+          tag: ${{ env.TAG_NAME }}
+
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version-file: "package.json"
           cache: "npm"
 
+      # The UI reads its version from /api/v1/version/current, not from a Vite
+      # build-time variable, so nothing is injected here.
       - name: Build frontend for embed
-        env:
-          # Inject the release tag into the Vite build so the UI reports the
-          # correct version, overriding the placeholder in frontend/env.example.
-          VITE_APP_VERSION: ${{ github.event.release.tag_name }}
         run: |
           npm ci
           npm run build --workspace=frontend
@@ -241,6 +264,7 @@ jobs:
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417
         with:
           go-version-file: 'server-source-code/go.mod'
+          cache-dependency-path: 'server-source-code/go.sum'
 
       - name: Download dependencies
         working-directory: server-source-code
@@ -253,12 +277,9 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarch == 'arm' && '6' || '' }}
           CGO_ENABLED: 0
+          VERSION: ${{ steps.ctx.outputs.version }}
         run: |
           OUTPUT_NAME="patchmon-server-${{ matrix.goos }}-${{ matrix.goarch }}"
-          # Strip leading "v" so a "v2.0.0" tag becomes "2.0.0" (matches semver
-          # in config.go and what the UI expects for version comparisons).
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION="${VERSION#v}"
           go build -buildvcs=false \
             -ldflags="-s -w -X 'github.com/PatchMon/PatchMon/server-source-code/internal/config.DefaultVersion=${VERSION}'" \
             -o "${OUTPUT_NAME}" ./cmd/server
@@ -267,5 +288,108 @@ jobs:
       - name: Upload patchmon-server to release
         uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ env.TAG_NAME }}
           files: patchmon-server-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  changelog:
+    name: Publish the feedback portal changelog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Resolve version and fetch release notes
+        id: ctx
+        uses: ./.github/actions/release-context
+        with:
+          token: ${{ github.token }}
+          tag: ${{ env.TAG_NAME }}
+
+      # Idempotent: entries are matched by the exact title "Version X.Y.Z" and
+      # updated in place, so a rerun is safe.
+      - name: Push notes to the Quackback changelog
+        env:
+          QUACKBACK_API_KEY: ${{ secrets.QUACKBACK_API_KEY }}
+          VERSION: ${{ steps.ctx.outputs.version }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          PUBLISHED_AT: ${{ github.event.release.published_at }}
+        run: |
+          if [ -z "${QUACKBACK_API_KEY}" ]; then
+            echo "::warning::QUACKBACK_API_KEY is not set — skipping the feedback portal changelog."
+            exit 0
+          fi
+          if [ "${IS_PRERELEASE}" = "true" ]; then
+            echo "Pre-release: leaving the changelog entry as a draft."
+            PUBLISHED_AT=""
+          fi
+          export PUBLISHED_AT
+          chmod +x .github/scripts/publish-changelog.sh
+          .github/scripts/publish-changelog.sh "$VERSION" \
+            "server-source-code/internal/handler/release_notes_data/RELEASE_NOTES_${VERSION}.md"
+
+  # Runs once after all 14 binaries are on the release, rather than inside each
+  # matrix leg, so there is a single provenance statement covering the whole
+  # set and a single SHA256SUMS file.
+  #
+  # Until now a release asset could not be verified at all: no checksums, no
+  # signature. The SBOM is a CRA essential requirement (Annex I Part II point
+  # 1); the provenance attestation is not mandated by the CRA but is what
+  # supply-chain reviews ask for and is near-free alongside it.
+  attest:
+    name: Checksums, SBOM and provenance
+    needs: [agent, patchmon-server]
+    runs-on: ubuntu-latest
+    # Job-level block replaces the workflow-level `contents: write`, so it has
+    # to be restated here alongside the two attestation scopes.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      # Generated before the binaries are downloaded so the scan covers the
+      # source tree only and does not re-catalogue the built artefacts.
+      - name: Generate source SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom-source.cdx.json
+          upload-artifact: false
+          # Defaults to true and this workflow runs on `release`, so without
+          # it the action attaches its own copy under a name of its choosing
+          # and the explicit upload below becomes a duplicate.
+          upload-release-assets: false
+
+      - name: Download release binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download "${TAG_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir dist \
+            --pattern 'patchmon-agent-*' \
+            --pattern 'patchmon-server-*'
+          ls -la dist
+
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum patchmon-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attest binary provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/patchmon-*'
+
+      - name: Upload checksums and SBOM to release
+        uses: softprops/action-gh-release@b25b93d384199fc0fc8c2e126b2d937a0cbeb2ae
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          files: |
+            dist/SHA256SUMS
+            sbom-source.cdx.json

@@ -6,17 +6,32 @@ BUILD_DIR=build
 # Where backend serves agents from (both must stay in sync)
 AGENTS_REPO=../agents
 AGENTS_DOCKER=../docker/compose_dev_data/agents
-# Strip debug info and embed signing public key (required — must be set via PATCHMON_SIGNING_PUBLIC_KEY env var)
+# The git tag is the single source of truth for the version; nothing in the
+# repo declares it. `--abbrev=0` yields the bare nearest tag (e.g. v2.0.2)
+# rather than v2.0.2-60-gABC, because the server parses versions as
+# dot-separated ints and silently treats any suffix as 0.
+#
+# Override to test the update path deliberately:  make build VERSION=2.0.1
+#
+# A build with no -X at all is worse than a wrong version: the server reads the
+# version out of the binary's build info, and a binary that declares none is
+# refused outright, so those agents can never update. Fall back to a marker
+# version rather than shipping one that is silently unstamped.
+VERSION ?= $(patsubst v%,%,$(shell git describe --tags --abbrev=0 2>/dev/null))
+VERSION_RESOLVED = $(if $(strip $(VERSION)),$(strip $(VERSION)),0.0.0-dev)
+VERSION_X = -X patchmon-agent/internal/pkgversion.Version=$(VERSION_RESOLVED)
+# Embed signing public key (required for release builds — must be set via PATCHMON_SIGNING_PUBLIC_KEY env var)
 SIGNING_KEY_LDFLAG=$(if $(PATCHMON_SIGNING_PUBLIC_KEY),-X patchmon-agent/internal/pkgversion.SigningPublicKey=$(PATCHMON_SIGNING_PUBLIC_KEY),)
-LDFLAGS=-ldflags "-s -w $(SIGNING_KEY_LDFLAG)"
+# Strip debug info; inject the version resolved above and the signing key.
+LDFLAGS=-ldflags "-s -w $(VERSION_X) $(SIGNING_KEY_LDFLAG)"
 # Disable VCS stamping
 BUILD_FLAGS=-buildvcs=false
 
 # Go variables
-GOBASE=$(shell pwd)
+GOBASE="$(shell pwd)"
 GOBIN=$(GOBASE)/$(BUILD_DIR)
 # Prefer go from PATH; fallback to /usr/local/go/bin for environments that need it
-GO_CMD ?= $(shell command -v go 2>/dev/null || echo /usr/local/go/bin/go)
+GO_CMD ?= "$(shell command -v go 2>/dev/null || echo /usr/local/go/bin/go)"
 # Prefer golangci-lint from PATH when available
 GOLANGCI_LINT_CMD ?= $(shell command -v golangci-lint 2>/dev/null || echo /root/go/bin/golangci-lint)
 
