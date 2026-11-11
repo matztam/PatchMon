@@ -139,6 +139,13 @@ func syncIntegrationStatus(integrationResp *models.IntegrationStatusResponse) {
 		if integrationName == "compliance" && integrationResp.ComplianceMode != "" {
 			continue
 		}
+		// fork: the proxies and reboot are opt-in on the host only; a server
+		// that sends them is ignored, so it cannot grant itself access.
+		if config.IsLocalOnlyIntegration(integrationName) {
+			logger.WithField("integration", logutil.Sanitize(integrationName)).
+				Warn("Ignoring server value for a local-only integration")
+			continue
+		}
 		configEnabled := cfgManager.IsIntegrationEnabled(integrationName)
 		if serverEnabled != configEnabled {
 			logger.WithFields(logutil.SanitizeMap(map[string]interface{}{
@@ -498,6 +505,8 @@ func runServiceLoop(stopCh <-chan struct{}) error {
 			case "refresh_integration_status":
 				logger.Info("Refreshing integration status on server request...")
 				go reportIntegrationStatus(ctx)
+			case "reboot":
+				go handleRebootRequest(newRebootRequest(m))
 			case "docker_inventory_refresh":
 				logger.Info("Refreshing Docker inventory on server request...")
 				go refreshDockerInventory(ctx)
@@ -1169,6 +1178,7 @@ func remediateSingleRule(ruleID, profileID string) error {
 // Called on startup and periodically based on server settings
 func reportIntegrationStatus(ctx context.Context) {
 	logger.Debug("Reporting integration status...")
+	go reportRebootCapability(ctx)
 
 	// Create HTTP client for API calls
 	httpClient := client.New(cfgManager, logger)
@@ -1437,6 +1447,10 @@ type wsMsg struct {
 	rdpProxyHost      string // RDP target host (default localhost)
 	rdpProxyPort      int    // RDP target port (default 3389)
 	rdpProxyData      string // RDP input data (base64)
+	// reboot fields (fork: host reboot)
+	rebootRequestID    string
+	rebootDelayMinutes int
+	rebootMessage      string
 }
 
 // Input validation patterns for WebSocket message fields
@@ -1943,6 +1957,10 @@ func connectOnce(out chan<- wsMsg, backoff *time.Duration) (connected bool, err 
 			Targets        []packages.WindowsPatchTarget `json:"targets"`
 			IncludeUpdates *bool                         `json:"include_updates"`
 			IncludeApps    *bool                         `json:"include_apps"`
+			// reboot fields (fork: host reboot)
+			RequestID    string `json:"request_id"`
+			DelayMinutes int    `json:"delay_minutes"`
+			Message      string `json:"message"`
 		}
 		if err := json.Unmarshal(data, &payload); err != nil {
 			logger.WithError(err).WithField("message_bytes", len(data)).Warn("Failed to parse WebSocket message")
@@ -1962,6 +1980,9 @@ func connectOnce(out chan<- wsMsg, backoff *time.Duration) (connected bool, err 
 		case "refresh_integration_status":
 			logger.Info("refresh_integration_status received")
 			dispatchWSMessage(out, wsMsg{kind: "refresh_integration_status"})
+		case "reboot":
+			logger.Info("reboot received")
+			dispatchWSMessage(out, wsMsg{kind: "reboot", rebootRequestID: payload.RequestID, rebootDelayMinutes: payload.DelayMinutes, rebootMessage: payload.Message})
 		case "docker_inventory_refresh":
 			logger.Info("docker_inventory_refresh received")
 			dispatchWSMessage(out, wsMsg{kind: "docker_inventory_refresh"})

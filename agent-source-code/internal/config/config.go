@@ -68,7 +68,21 @@ var AvailableIntegrations = []string{
 	"compliance",
 	"ssh-proxy-enabled",
 	"rdp-proxy-enabled",
+	"reboot-enabled", // fork: host reboot; local opt-in only, never set by apply_config
 	// Future: "proxmox", "kubernetes", etc.
+}
+
+// localOnlyIntegrations can only be enabled by editing config.yml on the host.
+// The server must never change them (fork: host reboot).
+var localOnlyIntegrations = map[string]bool{
+	"ssh-proxy-enabled": true,
+	"rdp-proxy-enabled": true,
+	"reboot-enabled":    true,
+}
+
+// IsLocalOnlyIntegration reports whether name may only be set locally.
+func IsLocalOnlyIntegration(name string) bool {
+	return localOnlyIntegrations[name]
 }
 
 // ErrConfigUnreadable is returned by a save when the config file exists but the
