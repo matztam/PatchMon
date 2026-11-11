@@ -52,6 +52,7 @@ import {
 	ConfigVersionValue,
 	HostIdentityBanners,
 } from "../components/host/HostIdentity";
+import RebootHostButton from "../components/host/RebootHostButton"; // fork: host reboot
 import InlineEdit from "../components/InlineEdit";
 import InlineMultiGroupEdit from "../components/InlineMultiGroupEdit";
 import { PackageListDisplay } from "../components/PackageListDisplay";
@@ -1980,6 +1981,9 @@ const HostDetail = () => {
 								<span className="hidden sm:inline">Patch all</span>
 								<span className="sm:hidden">Patch</span>
 							</button>
+						)}
+						{canManageHosts() && (
+							<RebootHostButton host={host} connected={!!wsStatus?.connected} />
 						)}
 						{reportMessage.text && (
 							<p className="text-xs mt-1.5 text-secondary-600 dark:text-white">

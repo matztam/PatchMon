@@ -26,7 +26,7 @@ var migrationsFS embed.FS
 // Logs to the provided logger and always prints migration status to stdout.
 // Returns an error if migrations fail.
 // ErrNoChange is treated as success (already up to date).
-func Run(databaseURL string, log *slog.Logger) error {
+func runUpstream(databaseURL string, log *slog.Logger) error {
 	if databaseURL == "" {
 		return fmt.Errorf("DATABASE_URL is required for migrations")
 	}

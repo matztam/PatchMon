@@ -24,7 +24,7 @@ import {
 	X,
 	XCircle,
 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
 	Link,
 	useLocation,
@@ -34,6 +34,7 @@ import {
 import { CompactPackageSummary } from "../components/PackageListDisplay";
 import { PatchRunStatusBadge } from "../components/PatchRunStatusBadge";
 import PatchWizard from "../components/PatchWizard";
+import PolicyRebootSettings from "../components/patching/PolicyRebootSettings"; // fork: host reboot
 import {
 	PatchingActivePolicies,
 	PatchingPendingApproval,
@@ -1358,6 +1359,7 @@ function PoliciesTab() {
 		fixed_time_utc: "03:00",
 	});
 	const [expandedPolicyId, setExpandedPolicyId] = useState(null);
+	const rebootSettingsRef = useRef(null); // fork: host reboot
 
 	const { data: policies = [], isLoading } = useQuery({
 		queryKey: ["patching-policies"],
@@ -1379,7 +1381,11 @@ function PoliciesTab() {
 	const hosts = hostsData?.data || [];
 
 	const createMutation = useMutation({
-		mutationFn: (data) => patchingAPI.createPolicy(data),
+		mutationFn: async (data) => {
+			const created = await patchingAPI.createPolicy(data);
+			await rebootSettingsRef.current?.save(created.id); // fork: host reboot
+			return created;
+		},
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ["patching-policies"] });
 			setShowModal(false);
@@ -1390,7 +1396,11 @@ function PoliciesTab() {
 	});
 
 	const updateMutation = useMutation({
-		mutationFn: ({ id, data }) => patchingAPI.updatePolicy(id, data),
+		mutationFn: async ({ id, data }) => {
+			const updated = await patchingAPI.updatePolicy(id, data);
+			await rebootSettingsRef.current?.save(id); // fork: host reboot
+			return updated;
+		},
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ["patching-policies"] });
 			setShowModal(false);
@@ -1726,6 +1736,11 @@ function PoliciesTab() {
 										</p>
 									</div>
 								)}
+								<PolicyRebootSettings
+									ref={rebootSettingsRef}
+									policyId={editingPolicy?.id}
+									orgTimezone={orgTimezone}
+								/>
 								<div className="flex justify-end gap-2 pt-2">
 									<button
 										type="button"

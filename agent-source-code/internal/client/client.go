@@ -476,3 +476,21 @@ func (c *Client) postPatchJSON(ctx context.Context, url string, body interface{}
 	}
 	return nil
 }
+
+// SendRebootAck reports the outcome of a reboot request (fork: host reboot).
+// status is accepted, rejected or failed.
+func (c *Client) SendRebootAck(ctx context.Context, requestID, status, reason string) error {
+	body := map[string]interface{}{"status": status}
+	if reason != "" {
+		body["reason"] = reason
+	}
+	url := fmt.Sprintf("%s/api/%s/hosts/reboot/requests/%s/ack", c.config.PatchmonServer, c.config.APIVersion, requestID)
+	return c.postPatchJSON(ctx, url, body, "reboot ack")
+}
+
+// SendRebootCapability tells the server whether reboot-enabled is set in
+// config.yml (fork: host reboot).
+func (c *Client) SendRebootCapability(ctx context.Context, enabled bool) error {
+	url := fmt.Sprintf("%s/api/%s/hosts/reboot/capability", c.config.PatchmonServer, c.config.APIVersion)
+	return c.postPatchJSON(ctx, url, map[string]interface{}{"enabled": enabled}, "reboot capability")
+}

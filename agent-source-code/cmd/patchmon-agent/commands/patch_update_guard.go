@@ -15,16 +15,18 @@ var (
 	agentUpdateDeferred bool
 	agentUpdating       bool
 	agentUpdater        = updateAgent
+	// rebootPending is set once a reboot has been accepted (fork: host reboot).
+	rebootPending bool
 )
 
-const msgAgentUpdating = "Agent update in progress, retry shortly"
+const msgAgentUpdating = "Agent update or reboot in progress, retry shortly"
 
 // beginPatchRun marks a patch run active, or refuses it while an agent update is running,
 // since the update ends the process. The returned func ends the run and applies any agent
 // update that arrived meanwhile, after the run's post-patch report.
 func beginPatchRun() (end func(), ok bool) {
 	patchUpdateMu.Lock()
-	if agentUpdating {
+	if agentUpdating || rebootPending {
 		patchUpdateMu.Unlock()
 		return nil, false
 	}
@@ -79,4 +81,28 @@ func rejectPatchRun(patchRunID, reason string) {
 	if err := client.New(cfgManager, logger).SendPatchOutput(ctx, patchRunID, "failed", "", reason); err != nil {
 		logger.WithError(err).Warn("Failed to send patch failed output to server")
 	}
+}
+
+// beginReboot reserves the host for a reboot. It returns a non-empty reason
+// when a patch run, an agent update or another reboot is in progress.
+func beginReboot() string {
+	patchUpdateMu.Lock()
+	defer patchUpdateMu.Unlock()
+	switch {
+	case rebootPending:
+		return "a reboot is already scheduled"
+	case activePatchRuns > 0:
+		return "a patch run is in progress"
+	case agentUpdating:
+		return "an agent update is in progress"
+	}
+	rebootPending = true
+	return ""
+}
+
+// endReboot releases the reservation after a reboot could not be scheduled.
+func endReboot() {
+	patchUpdateMu.Lock()
+	rebootPending = false
+	patchUpdateMu.Unlock()
 }
