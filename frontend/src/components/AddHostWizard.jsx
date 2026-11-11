@@ -98,6 +98,10 @@ const AddHostWizard = ({ isOpen, onClose, onSuccess }) => {
 		if (platform === "freebsd") params.set("os", "freebsd");
 		if (platform === "windows") params.set("os", "windows");
 		if (force && platform !== "windows") params.set("force", "true");
+		// fork: the server writes reboot-enabled: true into the install script;
+		// afterwards only the host itself can change it.
+		if (allowReboot && platform !== "windows")
+			params.set("allow_reboot", "true");
 		const qs = params.toString();
 		return qs ? `${base}?${qs}` : base;
 	};
@@ -124,11 +128,7 @@ const AddHostWizard = ({ isOpen, onClose, onSuccess }) => {
 	const getShellCommand = (force) => {
 		const use_sudo = platform !== "freebsd";
 		const base = use_sudo ? "sudo sh" : "sh";
-		// fork: --allow-reboot grants reboots by PatchMon on this host
-		const args = [force && "--force", allowReboot && "--allow-reboot"].filter(
-			Boolean,
-		);
-		return args.length ? `${base} -s -- ${args.join(" ")}` : base;
+		return force ? `${base} -s -- --force` : base;
 	};
 
 	// Poll for connection (steps 4–7)
@@ -303,6 +303,7 @@ const AddHostWizard = ({ isOpen, onClose, onSuccess }) => {
 		setConnectionStage("waiting");
 		setHasNavigated(false);
 		setWindowsIgnoreSsl(false);
+		setAllowReboot(false);
 		setWindowsUseCurl(false);
 		setError("");
 	};
@@ -532,6 +533,38 @@ const AddHostWizard = ({ isOpen, onClose, onSuccess }) => {
 										/>
 									</button>
 								</li>
+								{platform !== "windows" && (
+									<li className="px-3 py-2.5 bg-white dark:bg-secondary-700/50">
+										<div className="flex items-center justify-between gap-3">
+											<span className="text-sm font-medium text-secondary-900 dark:text-white">
+												Reboot
+											</span>
+											<button
+												type="button"
+												role="switch"
+												aria-checked={allowReboot}
+												aria-label="Allow PatchMon to reboot this host"
+												onClick={() => setAllowReboot(!allowReboot)}
+												className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 ${
+													allowReboot
+														? "bg-primary-600 dark:bg-primary-500"
+														: "bg-secondary-200 dark:bg-secondary-600"
+												}`}
+											>
+												<span
+													className={`inline-block h-3 w-3 transform rounded-md bg-white transition-transform ${
+														allowReboot ? "translate-x-5" : "translate-x-1"
+													}`}
+												/>
+											</button>
+										</div>
+										<p className="mt-1 text-xs text-secondary-500 dark:text-secondary-400">
+											Lets PatchMon reboot this host. Set once by the install
+											command; afterwards it can only be changed on the host
+											itself.
+										</p>
+									</li>
+								)}
 							</ul>
 						</div>
 						{error && (
@@ -577,24 +610,6 @@ const AddHostWizard = ({ isOpen, onClose, onSuccess }) => {
 							. After copying, the wizard will wait for the connection.
 						</p>
 						<ServerUrlCorsWarning enabled={isOpen} />
-						{platform !== "windows" && (
-							<label className="flex items-start gap-2 cursor-pointer">
-								<input
-									type="checkbox"
-									checked={allowReboot}
-									onChange={(e) => setAllowReboot(e.target.checked)}
-									className="mt-0.5 rounded border-secondary-400 text-primary-600 focus:ring-primary-500"
-								/>
-								<span className="text-sm text-secondary-600 dark:text-white">
-									Allow PatchMon to reboot this host
-									<span className="block text-xs text-secondary-500 dark:text-secondary-400">
-										Adds --allow-reboot, which sets reboot-enabled: true in the
-										agent&apos;s config.yml. Needed for the Reboot button and
-										automatic reboots by patch policies.
-									</span>
-								</span>
-							</label>
-						)}
 						{platform === "windows" && (
 							<div className="flex flex-wrap items-center gap-4">
 								<label className="flex items-center gap-2 cursor-pointer">

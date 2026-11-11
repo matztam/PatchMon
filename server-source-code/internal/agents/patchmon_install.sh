@@ -216,10 +216,11 @@ if [ "$FORCE_INSTALL" = "true" ]; then
     warning "Force mode enabled - will bypass broken packages"
 fi
 
-# fork: --allow-reboot lets PatchMon reboot this host (reboot-enabled: true).
-# It is a command-line flag on purpose: the person running the installer
-# grants it visibly, and the server cannot switch it on later.
-ALLOW_REBOOT="false"
+# fork: lets PatchMon reboot this host (reboot-enabled: true). Set when the
+# install command is created (allow_reboot=true in the install URL, which the
+# server turns into ALLOW_REBOOT above) or with --allow-reboot. The agent
+# never takes this setting from the server afterwards.
+[ "${ALLOW_REBOOT:-false}" = "true" ] && ALLOW_REBOOT="true" || ALLOW_REBOOT="false"
 for arg in "$@"; do
     [ "$arg" = "--allow-reboot" ] && ALLOW_REBOOT="true"
 done
