@@ -56,6 +56,11 @@ const EVENT_TYPES = [
 	{ value: "patch_run_approved", label: "Patch run approved" },
 	{ value: "patch_run_cancelled", label: "Patch run cancelled" },
 	{ value: "patch_reboot_required", label: "Reboot required" },
+	// fork: host reboot
+	{ value: "host_reboot_started", label: "Host reboot started" },
+	{ value: "host_reboot_completed", label: "Host reboot completed" },
+	{ value: "host_reboot_failed", label: "Host reboot failed" },
+	{ value: "host_reboot_rejected", label: "Host reboot rejected" },
 	{ value: "compliance_scan_completed", label: "Compliance scan completed" },
 	{ value: "compliance_scan_failed", label: "Compliance scan failed" },
 	{ value: "container_stopped", label: "Container stopped" },
