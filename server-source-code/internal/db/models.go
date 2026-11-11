@@ -396,6 +396,12 @@ type HostPendingConfig struct {
 	UpdatedAt                    pgtype.Timestamp `json:"updated_at"`
 }
 
+type HostRebootState struct {
+	HostID        string             `json:"host_id"`
+	RebootEnabled bool               `json:"reboot_enabled"`
+	ReportedAt    pgtype.Timestamptz `json:"reported_at"`
+}
+
 type HostRepository struct {
 	ID           string           `json:"id"`
 	HostID       string           `json:"host_id"`
@@ -504,6 +510,18 @@ type PatchPolicyExclusion struct {
 	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
 }
 
+type PatchPolicyRebootSetting struct {
+	PatchPolicyID string             `json:"patch_policy_id"`
+	RebootMode    string             `json:"reboot_mode"`
+	WindowDays    []int32            `json:"window_days"`
+	WindowStart   string             `json:"window_start"`
+	WindowEnd     string             `json:"window_end"`
+	DelayMinutes  int32              `json:"delay_minutes"`
+	MaxConcurrent int32              `json:"max_concurrent"`
+	Paused        bool               `json:"paused"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
 type PatchRun struct {
 	ID                    string           `json:"id"`
 	HostID                string           `json:"host_id"`
@@ -552,6 +570,25 @@ type PatchRunItem struct {
 	CompletedAt    pgtype.Timestamp `json:"completed_at"`
 	CreatedAt      pgtype.Timestamp `json:"created_at"`
 	UpdatedAt      pgtype.Timestamp `json:"updated_at"`
+}
+
+type RebootRequest struct {
+	ID                string             `json:"id"`
+	HostID            string             `json:"host_id"`
+	Source            string             `json:"source"`
+	PatchPolicyID     *string            `json:"patch_policy_id"`
+	RequestedByUserID *string            `json:"requested_by_user_id"`
+	Status            string             `json:"status"`
+	DelayMinutes      int32              `json:"delay_minutes"`
+	Message           *string            `json:"message"`
+	Reason            *string            `json:"reason"`
+	BootTimeBefore    pgtype.Timestamptz `json:"boot_time_before"`
+	BootTimeAfter     pgtype.Timestamptz `json:"boot_time_after"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	SentAt            pgtype.Timestamptz `json:"sent_at"`
+	AcceptedAt        pgtype.Timestamptz `json:"accepted_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ReleaseNotesAcceptance struct {

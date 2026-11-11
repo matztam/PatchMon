@@ -110,8 +110,10 @@ type Querier interface {
 	ClearHostDockerHashOnEnable(ctx context.Context, arg ClearHostDockerHashOnEnableParams) error
 	ClearScheduledAt(ctx context.Context, id string) error
 	ClearUserOidcLink(ctx context.Context, id string) error
+	CompleteRebootRequest(ctx context.Context, arg CompleteRebootRequestParams) (int64, error)
 	ConsumeTfaBackupCode(ctx context.Context, arg ConsumeTfaBackupCodeParams) (int64, error)
 	CountActiveAdmins(ctx context.Context) (int64, error)
+	CountActiveRebootsForPolicy(ctx context.Context, patchPolicyID *string) (int64, error)
 	CountActiveRepositories(ctx context.Context) (int32, error)
 	CountAdmins(ctx context.Context) (int64, error)
 	// Agent Activity feed. Returns the merged time-ordered stream of agent comm
@@ -178,6 +180,7 @@ type Querier interface {
 	CreatePatchPolicyExclusion(ctx context.Context, arg CreatePatchPolicyExclusionParams) error
 	// patch_runs
 	CreatePatchRun(ctx context.Context, arg CreatePatchRunParams) error
+	CreateRebootRequest(ctx context.Context, arg CreateRebootRequestParams) error
 	CreateScheduledReport(ctx context.Context, arg CreateScheduledReportParams) (ScheduledReport, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateTrustedDevice(ctx context.Context, arg CreateTrustedDeviceParams) error
@@ -243,7 +246,10 @@ type Querier interface {
 	FindSessionByUserAndDeviceID(ctx context.Context, arg FindSessionByUserAndDeviceIDParams) (UserSession, error)
 	FindSessionWithTfaBypass(ctx context.Context, arg FindSessionWithTfaBypassParams) (FindSessionWithTfaBypassRow, error)
 	FindValidTrustedDevice(ctx context.Context, arg FindValidTrustedDeviceParams) (UserTrustedDevice, error)
+	// Ends a request that is still in flight as rejected, failed or timed_out.
+	FinishRebootRequest(ctx context.Context, arg FinishRebootRequestParams) (int64, error)
 	GetAcceptedVersionsByUserID(ctx context.Context, userID string) ([]string, error)
+	GetActiveRebootRequestForHost(ctx context.Context, hostID string) (RebootRequest, error)
 	GetAlertActionByName(ctx context.Context, name string) (AlertAction, error)
 	GetAlertByID(ctx context.Context, id string) (GetAlertByIDRow, error)
 	GetAlertConfigByType(ctx context.Context, alertType string) (GetAlertConfigByTypeRow, error)
@@ -347,6 +353,7 @@ type Querier interface {
 	// per-id aggregate round-trips are no longer needed.
 	GetHostPackagesWithHostsByPackageID(ctx context.Context, packageID string) ([]GetHostPackagesWithHostsByPackageIDRow, error)
 	GetHostPackagesWithPackages(ctx context.Context, hostID string) ([]GetHostPackagesWithPackagesRow, error)
+	GetHostRebootState(ctx context.Context, hostID string) (HostRebootState, error)
 	GetHostRefsForPackageIDs(ctx context.Context, arg GetHostRefsForPackageIDsParams) ([]GetHostRefsForPackageIDsRow, error)
 	GetHostRepositoriesByHostID(ctx context.Context, hostID string) ([]GetHostRepositoriesByHostIDRow, error)
 	GetHostRepositoriesForRepo(ctx context.Context, repositoryID string) ([]GetHostRepositoriesForRepoRow, error)
@@ -409,6 +416,8 @@ type Querier interface {
 	GetPatchRunByIDSimple(ctx context.Context, id string) (PatchRun, error)
 	GetPendingConfig(ctx context.Context, hostID string) (HostPendingConfig, error)
 	GetPendingUpdateCountsPerHost(ctx context.Context) ([]GetPendingUpdateCountsPerHostRow, error)
+	GetPolicyRebootSettings(ctx context.Context, patchPolicyID string) (PatchPolicyRebootSetting, error)
+	GetRebootRequest(ctx context.Context, id string) (RebootRequest, error)
 	GetRecentComplianceScans(ctx context.Context) ([]GetRecentComplianceScansRow, error)
 	GetRecentHosts(ctx context.Context, limit int32) ([]GetRecentHostsRow, error)
 	GetRecentUsers(ctx context.Context, limit int32) ([]GetRecentUsersRow, error)
@@ -495,6 +504,7 @@ type Querier interface {
 	ListAlertConfig(ctx context.Context) ([]ListAlertConfigRow, error)
 	ListAlertHistoryByAlertID(ctx context.Context, alertID string) ([]ListAlertHistoryByAlertIDRow, error)
 	ListAutoEnrollmentTokens(ctx context.Context) ([]ListAutoEnrollmentTokensRow, error)
+	ListAutoRebootPolicies(ctx context.Context) ([]PatchPolicyRebootSetting, error)
 	ListComplianceProfiles(ctx context.Context) ([]ComplianceProfile, error)
 	ListComplianceResultsByScan(ctx context.Context, arg ListComplianceResultsByScanParams) ([]ListComplianceResultsByScanRow, error)
 	ListComplianceRulesByProfile(ctx context.Context, profileID string) ([]ComplianceRule, error)
@@ -514,6 +524,7 @@ type Querier interface {
 	ListHostsForPackage(ctx context.Context, arg ListHostsForPackageParams) ([]ListHostsForPackageRow, error)
 	ListHostsPaginated(ctx context.Context, arg ListHostsPaginatedParams) ([]ListHostsPaginatedRow, error)
 	ListImages(ctx context.Context, arg ListImagesParams) ([]DockerImage, error)
+	ListInFlightRebootRequests(ctx context.Context) ([]ListInFlightRebootRequestsRow, error)
 	ListJobHistoryByApiID(ctx context.Context, arg ListJobHistoryByApiIDParams) ([]JobHistory, error)
 	ListNeedingUpdates(ctx context.Context) ([]ListNeedingUpdatesRow, error)
 	ListNetworks(ctx context.Context, arg ListNetworksParams) ([]DockerNetwork, error)
@@ -547,6 +558,11 @@ type Querier interface {
 	ListPatchRunsOrderByStatus(ctx context.Context, arg ListPatchRunsOrderByStatusParams) ([]ListPatchRunsOrderByStatusRow, error)
 	ListPatchRunsOrderByStatusDesc(ctx context.Context, arg ListPatchRunsOrderByStatusDescParams) ([]ListPatchRunsOrderByStatusDescRow, error)
 	ListPendingPatchRunItems(ctx context.Context, patchRunID string) ([]PatchRunItem, error)
+	ListPolicyRebootSettings(ctx context.Context) ([]PatchPolicyRebootSetting, error)
+	// Hosts that need a reboot, allow it, have nothing in flight and no failed
+	// patch run since they last booted.
+	ListRebootCandidateHosts(ctx context.Context) ([]ListRebootCandidateHostsRow, error)
+	ListRebootRequestsForHost(ctx context.Context, arg ListRebootRequestsForHostParams) ([]ListRebootRequestsForHostRow, error)
 	ListRecentPatchRuns(ctx context.Context, arg ListRecentPatchRunsParams) ([]ListRecentPatchRunsRow, error)
 	ListRepositories(ctx context.Context, arg ListRepositoriesParams) ([]ListRepositoriesRow, error)
 	ListRoles(ctx context.Context) ([]RolePermission, error)
@@ -575,6 +591,8 @@ type Querier interface {
 	// every long run timed_out while it was still working and discard the real
 	// outcome the agent later reports.
 	MarkPatchRunsTimedOut(ctx context.Context, arg MarkPatchRunsTimedOutParams) ([]MarkPatchRunsTimedOutRow, error)
+	MarkRebootRequestAccepted(ctx context.Context, id string) (int64, error)
+	MarkRebootRequestSent(ctx context.Context, id string) (int64, error)
 	// Keyed on when the run became due, not updated_at: the offline-agent retry bumps updated_at every 5 minutes.
 	MarkUndispatchedPatchRunsTimedOut(ctx context.Context, arg MarkUndispatchedPatchRunsTimedOutParams) ([]MarkUndispatchedPatchRunsTimedOutRow, error)
 	// Declared :execrows, not :exec, because the status guard IS the concurrency
@@ -718,8 +736,11 @@ type Querier interface {
 	UpsertDockerImageCheck(ctx context.Context, arg UpsertDockerImageCheckParams) error
 	UpsertDockerNetwork(ctx context.Context, arg UpsertDockerNetworkParams) error
 	UpsertDockerVolume(ctx context.Context, arg UpsertDockerVolumeParams) error
+	// fork: host reboot
+	UpsertHostRebootState(ctx context.Context, arg UpsertHostRebootStateParams) error
 	UpsertPatchRunItemsFromAgent(ctx context.Context, arg UpsertPatchRunItemsFromAgentParams) error
 	UpsertPendingConfig(ctx context.Context, arg UpsertPendingConfigParams) error
+	UpsertPolicyRebootSettings(ctx context.Context, arg UpsertPolicyRebootSettingsParams) error
 	// Replaces the previous GetRepositoryByURLDistComponents + InsertRepository
 	// SELECT-then-INSERT pattern. Migration 000040 added a UNIQUE constraint on
 	// (url, distribution, components), making this a true upsert and closing

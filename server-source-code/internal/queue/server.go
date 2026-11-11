@@ -155,6 +155,9 @@ func Mux(opts MuxOpts) *asynq.ServeMux {
 	patchRunsStore := store.NewPatchRunsStore(&hostctx.DBResolver{Default: db})
 	mux.Handle(TypeRunPatch, wrap(TypeRunPatch, NewRunPatchHandler(registry, patchRunsStore, opts.PoolCache, opts.QueueClient, log)))
 	mux.Handle(TypeMetricsSend, wrap(TypeMetricsSend, NewMetricsSendHandler(db, opts.PoolCache, opts.ServerVersion, log)))
+	// fork: host reboot
+	mux.Handle(TypeRebootHost, wrap(TypeRebootHost, NewRebootHostHandler(registry, db, opts.PoolCache, log)))
+	mux.Handle(TypeRebootScheduler, wrap(TypeRebootScheduler, NewRebootSchedulerHandler(registry, db, opts.PoolCache, opts.QueueClient, opts.Emit, log)))
 	return mux
 }
 
@@ -242,6 +245,12 @@ func NewScheduler(opts asynq.RedisClientOpt, db *database.DB, log *slog.Logger) 
 
 	dockerInvTask := asynq.NewTask(TypeDockerInvCleanup, nil)
 	if _, err := scheduler.Register("0 4 * * *", dockerInvTask, asynq.Queue(QueueDockerInvCleanup), asynq.Retention(AutomationRetention)); err != nil {
+		return nil, err
+	}
+
+	// fork: host reboot scheduler and in-flight check
+	rebootSchedulerTask := asynq.NewTask(TypeRebootScheduler, nil)
+	if _, err := scheduler.Register(RebootSchedulerCron, rebootSchedulerTask, asynq.Queue(QueueHostStatus), asynq.Unique(4*time.Minute), asynq.Retention(AutomationRetention)); err != nil {
 		return nil, err
 	}
 
