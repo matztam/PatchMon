@@ -17,6 +17,7 @@ const CredentialsModal = ({ host, isOpen, onClose, plaintextApiKey }) => {
 	const [showApiKey, setShowApiKey] = useState(false);
 	const [activeTab, setActiveTab] = useState("quick-install");
 	const [forceInstall, setForceInstall] = useState(false);
+	const [allowReboot, setAllowReboot] = useState(false); // fork: host reboot
 	const [windowsIgnoreSsl, setWindowsIgnoreSsl] = useState(false);
 	const [windowsUseCurl, setWindowsUseCurl] = useState(false);
 	const [regeneratedCredentials, setRegeneratedCredentials] = useState(null);
@@ -93,7 +94,12 @@ const CredentialsModal = ({ host, isOpen, onClose, plaintextApiKey }) => {
 	const getShellCommand = () => {
 		const use_sudo = host?.expected_platform !== "freebsd";
 		const base = use_sudo ? "sudo sh" : "sh";
-		return forceInstall ? `${base} -s -- --force` : base;
+		// fork: --allow-reboot grants reboots by PatchMon on this host
+		const args = [
+			forceInstall && "--force",
+			allowReboot && "--allow-reboot",
+		].filter(Boolean);
+		return args.length ? `${base} -s -- ${args.join(" ")}` : base;
 	};
 
 	const isWindowsHost =
@@ -285,6 +291,21 @@ const CredentialsModal = ({ host, isOpen, onClose, plaintextApiKey }) => {
 									<p className="text-xs text-primary-600 dark:text-primary-400 mt-1">
 										Enable this if the target host has broken packages
 										(CloudPanel, WHM, etc.) that block apt-get operations
+									</p>
+									<label className="flex items-center gap-2 text-sm mt-3">
+										<input
+											type="checkbox"
+											checked={allowReboot}
+											onChange={(e) => setAllowReboot(e.target.checked)}
+											className="rounded border-secondary-300 dark:border-secondary-600 text-primary-600 focus:ring-primary-500 dark:focus:ring-primary-400 dark:bg-secondary-700"
+										/>
+										<span className="text-primary-800 dark:text-primary-200">
+											Allow PatchMon to reboot this host (--allow-reboot)
+										</span>
+									</label>
+									<p className="text-xs text-primary-600 dark:text-primary-400 mt-1">
+										Also enables it on an already installed agent when you run
+										the command again
 									</p>
 								</div>
 							)}

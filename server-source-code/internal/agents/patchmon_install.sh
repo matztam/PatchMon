@@ -216,6 +216,32 @@ if [ "$FORCE_INSTALL" = "true" ]; then
     warning "Force mode enabled - will bypass broken packages"
 fi
 
+# fork: --allow-reboot lets PatchMon reboot this host (reboot-enabled: true).
+# It is a command-line flag on purpose: the person running the installer
+# grants it visibly, and the server cannot switch it on later.
+ALLOW_REBOOT="false"
+for arg in "$@"; do
+    [ "$arg" = "--allow-reboot" ] && ALLOW_REBOOT="true"
+done
+if [ "$ALLOW_REBOOT" = "true" ]; then
+    info "Reboots by PatchMon will be allowed on this host (reboot-enabled: true)"
+fi
+
+# enable_reboot_in_config sets reboot-enabled: true in an existing config.yml.
+enable_reboot_in_config() {
+    cfg="$1"
+    if grep -qE '^[[:space:]]+reboot-enabled:' "$cfg"; then
+        sed -i.bak -E 's/^([[:space:]]+)reboot-enabled:.*/\1reboot-enabled: true/' "$cfg" && rm -f "$cfg.bak"
+    elif grep -qE '^integrations:[[:space:]]*$' "$cfg"; then
+        tmp_cfg=$(mktemp)
+        awk '{print} /^integrations:[[:space:]]*$/ && !done { if ((getline n) > 0) { match(n, /^[ ]+/); ind = (RLENGTH > 0) ? substr(n, 1, RLENGTH) : "  "; print ind "reboot-enabled: true"; print n } else { print "  reboot-enabled: true" } done = 1 }' "$cfg" > "$tmp_cfg"
+        cat "$tmp_cfg" > "$cfg"
+        rm -f "$tmp_cfg"
+    else
+        printf 'integrations:\n  reboot-enabled: true\n' >> "$cfg"
+    fi
+}
+
 # Get unique machine ID for this host
 MACHINE_ID=$(get_machine_id)
 export MACHINE_ID
@@ -556,6 +582,17 @@ if [ -f /etc/patchmon/config.yml ] && [ -f /etc/patchmon/credentials.yml ]; then
         
         if /usr/local/bin/patchmon-agent ping >/dev/null 2>&1; then
             success "Agent is already configured and ping successful"
+            if [ "$ALLOW_REBOOT" = "true" ] && ! grep -qE '^[[:space:]]+reboot-enabled:[[:space:]]*true' /etc/patchmon/config.yml; then
+                enable_reboot_in_config /etc/patchmon/config.yml
+                success "Enabled reboots by PatchMon (reboot-enabled: true)"
+                if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet patchmon-agent 2>/dev/null; then
+                    systemctl restart patchmon-agent && info "Restarted patchmon-agent to apply it"
+                elif command -v rc-service >/dev/null 2>&1; then
+                    rc-service patchmon-agent restart >/dev/null 2>&1 && info "Restarted patchmon-agent to apply it"
+                else
+                    warning "Restart the PatchMon agent service to apply it"
+                fi
+            fi
             info "Existing configuration is working - skipping installation"
             info ""
             info "If you want to reinstall, remove the configuration files first:"
@@ -582,6 +619,11 @@ info "Creating configuration files..."
 
 # Check if config file already exists
 if [ -f "/etc/patchmon/config.yml" ]; then
+    # fork: keep a reboot permission granted earlier across a reinstall
+    if grep -qE '^[[:space:]]+reboot-enabled:[[:space:]]*true' /etc/patchmon/config.yml; then
+        ALLOW_REBOOT="true"
+        info "Keeping reboot-enabled: true from the existing configuration"
+    fi
     warning "Config file already exists at /etc/patchmon/config.yml"
     warning "Moving existing file out of the way for fresh installation"
     
@@ -639,6 +681,7 @@ integrations:
     openscap_enabled: true
     docker_bench_enabled: false
   ssh-proxy-enabled: false
+  reboot-enabled: ${ALLOW_REBOOT}
 EOF
 
 # Create credentials file

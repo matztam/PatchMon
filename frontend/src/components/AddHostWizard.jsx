@@ -55,6 +55,7 @@ const AddHostWizard = ({ isOpen, onClose, onSuccess }) => {
 	const [hasNavigated, setHasNavigated] = useState(false);
 	const [windowsIgnoreSsl, setWindowsIgnoreSsl] = useState(false);
 	const [windowsUseCurl, setWindowsUseCurl] = useState(false);
+	const [allowReboot, setAllowReboot] = useState(false); // fork: host reboot
 	const transitionTimeoutRef = useRef(null);
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
@@ -123,7 +124,11 @@ const AddHostWizard = ({ isOpen, onClose, onSuccess }) => {
 	const getShellCommand = (force) => {
 		const use_sudo = platform !== "freebsd";
 		const base = use_sudo ? "sudo sh" : "sh";
-		return force ? `${base} -s -- --force` : base;
+		// fork: --allow-reboot grants reboots by PatchMon on this host
+		const args = [force && "--force", allowReboot && "--allow-reboot"].filter(
+			Boolean,
+		);
+		return args.length ? `${base} -s -- ${args.join(" ")}` : base;
 	};
 
 	// Poll for connection (steps 4–7)
@@ -572,6 +577,24 @@ const AddHostWizard = ({ isOpen, onClose, onSuccess }) => {
 							. After copying, the wizard will wait for the connection.
 						</p>
 						<ServerUrlCorsWarning enabled={isOpen} />
+						{platform !== "windows" && (
+							<label className="flex items-start gap-2 cursor-pointer">
+								<input
+									type="checkbox"
+									checked={allowReboot}
+									onChange={(e) => setAllowReboot(e.target.checked)}
+									className="mt-0.5 rounded border-secondary-400 text-primary-600 focus:ring-primary-500"
+								/>
+								<span className="text-sm text-secondary-600 dark:text-white">
+									Allow PatchMon to reboot this host
+									<span className="block text-xs text-secondary-500 dark:text-secondary-400">
+										Adds --allow-reboot, which sets reboot-enabled: true in the
+										agent&apos;s config.yml. Needed for the Reboot button and
+										automatic reboots by patch policies.
+									</span>
+								</span>
+							</label>
+						)}
 						{platform === "windows" && (
 							<div className="flex flex-wrap items-center gap-4">
 								<label className="flex items-center gap-2 cursor-pointer">
