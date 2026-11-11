@@ -86,6 +86,9 @@ const CredentialsModal = ({ host, isOpen, onClose, plaintextApiKey }) => {
 			params.set("os", "windows");
 		if (forceInstall && host?.expected_platform !== "windows")
 			params.set("force", "true");
+		// fork: also enables it on an already installed agent
+		if (allowReboot && host?.expected_platform !== "windows")
+			params.set("allow_reboot", "true");
 		const qs = params.toString();
 		return qs ? `${base}?${qs}` : base;
 	};
@@ -94,12 +97,7 @@ const CredentialsModal = ({ host, isOpen, onClose, plaintextApiKey }) => {
 	const getShellCommand = () => {
 		const use_sudo = host?.expected_platform !== "freebsd";
 		const base = use_sudo ? "sudo sh" : "sh";
-		// fork: --allow-reboot grants reboots by PatchMon on this host
-		const args = [
-			forceInstall && "--force",
-			allowReboot && "--allow-reboot",
-		].filter(Boolean);
-		return args.length ? `${base} -s -- ${args.join(" ")}` : base;
+		return forceInstall ? `${base} -s -- --force` : base;
 	};
 
 	const isWindowsHost =
@@ -292,7 +290,13 @@ const CredentialsModal = ({ host, isOpen, onClose, plaintextApiKey }) => {
 										Enable this if the target host has broken packages
 										(CloudPanel, WHM, etc.) that block apt-get operations
 									</p>
-									<label className="flex items-center gap-2 text-sm mt-3">
+								</div>
+							)}
+
+							{/* fork: host reboot (Linux/FreeBSD only) */}
+							{!isWindowsHost && (
+								<div className="mb-3">
+									<label className="flex items-center gap-2 text-xs md:text-sm">
 										<input
 											type="checkbox"
 											checked={allowReboot}
@@ -300,12 +304,12 @@ const CredentialsModal = ({ host, isOpen, onClose, plaintextApiKey }) => {
 											className="rounded border-secondary-300 dark:border-secondary-600 text-primary-600 focus:ring-primary-500 dark:focus:ring-primary-400 dark:bg-secondary-700"
 										/>
 										<span className="text-primary-800 dark:text-primary-200">
-											Allow PatchMon to reboot this host (--allow-reboot)
+											Allow reboots by PatchMon
 										</span>
 									</label>
 									<p className="text-xs text-primary-600 dark:text-primary-400 mt-1">
-										Also enables it on an already installed agent when you run
-										the command again
+										Sets reboot-enabled: true on the host. Running the command
+										on an installed agent only switches this on.
 									</p>
 								</div>
 							)}

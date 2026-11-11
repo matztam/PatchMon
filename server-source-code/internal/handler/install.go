@@ -268,6 +268,12 @@ fetch_credentials() {
 }
 fetch_credentials
 `, serverURL, osParam, token, curlFlags, skipSSLVerify, forceStr, hostIDValue, archExport)
+	// fork: host reboot. Chosen when the install command is created; the
+	// script writes reboot-enabled: true and the agent never takes it from
+	// the server afterwards.
+	if q := r.URL.Query().Get("allow_reboot"); q == "true" || q == "1" {
+		envBlock += "export ALLOW_REBOOT=\"true\"\n"
+	}
 
 	// Remove shebang from original script and prepend env block
 	script := h.scriptBase

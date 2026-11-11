@@ -52,7 +52,36 @@ func TestInstallScriptRebootFlag(t *testing.T) {
 		}
 	}
 	// The default must stay off.
-	if !strings.Contains(script, "ALLOW_REBOOT=\"false\"") {
+	if !strings.Contains(script, `ALLOW_REBOOT="false"`) {
 		t.Error("ALLOW_REBOOT must default to false")
+	}
+}
+
+// ALLOW_REBOOT from the server-provided header is only honoured when it is
+// exactly "true".
+func TestInstallScriptAllowRebootFromEnv(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("sh not available")
+	}
+	script := string(PatchmonInstallScript)
+	start := strings.Index(script, `[ "${ALLOW_REBOOT:-false}" = "true" ]`)
+	if start < 0 {
+		t.Fatal("ALLOW_REBOOT normalisation not found")
+	}
+	line := script[start : start+strings.Index(script[start:], "\n")]
+	for env, want := range map[string]string{"": "false", "true": "true", "yes": "false", "true; id": "false", "TRUE": "false"} {
+		cmd := exec.Command(sh, "-c", line+`; printf %s "$ALLOW_REBOOT"`)
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		if env != "" {
+			cmd.Env = append(cmd.Env, "ALLOW_REBOOT="+env)
+		}
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%q: %v", env, err)
+		}
+		if string(out) != want {
+			t.Errorf("ALLOW_REBOOT=%q gave %q, want %q", env, out, want)
+		}
 	}
 }
