@@ -494,3 +494,24 @@ func (c *Client) SendRebootCapability(ctx context.Context, enabled bool) error {
 	url := fmt.Sprintf("%s/api/%s/hosts/reboot/capability", c.config.PatchmonServer, c.config.APIVersion)
 	return c.postPatchJSON(ctx, url, map[string]interface{}{"enabled": enabled}, "reboot capability")
 }
+
+// DownloadSSGSignature downloads the minisign signature of an SSG datastream
+// (fork: signed SCAP content).
+func (c *Client) DownloadSSGSignature(ctx context.Context, filename string) ([]byte, error) {
+	url := fmt.Sprintf("%s/api/%s/compliance/ssg-signature/%s", c.config.PatchmonServer, c.config.APIVersion, filename)
+	resp, err := c.client.R().
+		SetContext(ctx).
+		SetHeader("X-API-ID", c.credentials.APIID).
+		SetHeader("X-API-KEY", c.credentials.APIKey).
+		Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("ssg-signature download failed: %w", err)
+	}
+	if resp.StatusCode() != 200 {
+		return nil, fmt.Errorf("no signature on the server (status %d)", resp.StatusCode())
+	}
+	if len(resp.Body()) > 4096 {
+		return nil, fmt.Errorf("ssg-signature too large")
+	}
+	return resp.Body(), nil
+}

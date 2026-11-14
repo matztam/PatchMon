@@ -760,7 +760,8 @@ func runServiceLoop(stopCh <-chan struct{}) error {
 
 // ssgClientAdapter adapts the agent HTTP client to the SSGContentDownloader interface.
 type ssgClientAdapter struct {
-	c *client.Client
+	c       *client.Client
+	version string
 }
 
 func (a *ssgClientAdapter) GetSSGVersion(ctx context.Context) (string, []string, error) {
@@ -768,11 +769,12 @@ func (a *ssgClientAdapter) GetSSGVersion(ctx context.Context) (string, []string,
 	if err != nil {
 		return "", nil, err
 	}
+	a.version = resp.Version // fork: the signature must name this version
 	return resp.Version, resp.Files, nil
 }
 
 func (a *ssgClientAdapter) DownloadSSGContent(ctx context.Context, filename, destPath string) error {
-	return a.c.DownloadSSGContent(ctx, filename, destPath)
+	return downloadVerifiedSSG(ctx, a.c, a.version, filename, destPath) // fork: ssg_verify.go
 }
 
 // upgradeSSGContent upgrades the SCAP Security Guide content from the PatchMon
@@ -1136,6 +1138,10 @@ func runInstallScanner() error {
 func remediateSingleRule(ruleID, profileID string) error {
 	if ruleID == "" {
 		return fmt.Errorf("rule ID is required")
+	}
+	if !compliance.RemediationAllowed() { // fork: local opt-in, see remediation_gate.go
+		sendComplianceProgress("failed", "remediation", "Remediation is not enabled on this host", 0, compliance.ErrRemediationNotEnabled.Error())
+		return compliance.ErrRemediationNotEnabled
 	}
 
 	logger.WithField("rule_id", logutil.Sanitize(ruleID)).Info("Starting single rule remediation")

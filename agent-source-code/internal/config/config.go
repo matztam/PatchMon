@@ -69,6 +69,7 @@ var AvailableIntegrations = []string{
 	"ssh-proxy-enabled",
 	"rdp-proxy-enabled",
 	"reboot-enabled", // fork: host reboot; local opt-in only, never set by apply_config
+	"compliance-remediation-enabled", // fork: local opt-in only, never set by the server
 	// Future: "proxmox", "kubernetes", etc.
 }
 
@@ -78,6 +79,8 @@ var localOnlyIntegrations = map[string]bool{
 	"ssh-proxy-enabled": true,
 	"rdp-proxy-enabled": true,
 	"reboot-enabled":    true,
+	// fork: remediation runs fix scripts from SCAP content as root
+	"compliance-remediation-enabled": true,
 }
 
 // IsLocalOnlyIntegration reports whether name may only be set locally.

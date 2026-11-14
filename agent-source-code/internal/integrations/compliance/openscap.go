@@ -1286,6 +1286,13 @@ func (s *OpenSCAPScanner) RunScanWithOptions(ctx context.Context, options *model
 	}
 
 	// Add optional arguments based on options
+	if options.EnableRemediation && !RemediationAllowed() {
+		// fork: scan without fixing anything; see remediation_gate.go.
+		s.logger.Warn("Remediation was requested but is not enabled on this host; scanning without remediation")
+		opts := *options
+		opts.EnableRemediation = false
+		options = &opts
+	}
 	if options.EnableRemediation {
 		args = append(args, "--remediate")
 		s.logger.Info("Remediation enabled - will attempt to fix failed rules")
@@ -1471,6 +1478,9 @@ func (s *OpenSCAPScanner) GenerateRemediationScript(ctx context.Context, results
 
 // RunOfflineRemediation applies fixes from a previous scan result
 func (s *OpenSCAPScanner) RunOfflineRemediation(ctx context.Context, resultsPath string) error {
+	if !RemediationAllowed() { // fork: see remediation_gate.go
+		return ErrRemediationNotEnabled
+	}
 	if !s.available {
 		return fmt.Errorf("OpenSCAP is not available")
 	}
