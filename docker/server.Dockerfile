@@ -42,11 +42,20 @@ CMD ["go", "run", "./cmd/server"]
 # target platform, and did the unpacking under QEMU for the non-native one.
 FROM --platform=$BUILDPLATFORM alpine:3.24 AS ssg-content
 ARG SSG_VERSION=""
+# fork: signed SCAP content. ssg-signatures/ (made by build-signed.sh --ssg)
+# pins the SSG release and holds a minisign signature per datastream. With
+# SSG_SIGNING_PUBLIC_KEY set, every datastream must verify or the build fails.
+ARG SSG_SIGNING_PUBLIC_KEY=""
+COPY ssg-signatures/ /ssg-signatures/
 # Use shell variable VER to avoid Docker ARG substitution in the wget URL.
 # Docker substitutes ${SSG_VERSION} at parse time; when empty, the URL would be
 # .../v/scap-security-guide-.zip. VER is set once from ARG, then expanded by the shell.
-RUN apk add --no-cache wget unzip jq \
+RUN apk add --no-cache wget unzip jq minisign \
     && VER="${SSG_VERSION}" \
+    && if [ -z "${VER}" ] && [ -f /ssg-signatures/VERSION ]; then \
+         VER=$(cat /ssg-signatures/VERSION); \
+         echo "Using SSG version pinned by ssg-signatures/: ${VER}"; \
+       fi \
     && if [ -z "${VER}" ]; then \
          VER=$(wget -qO- https://api.github.com/repos/ComplianceAsCode/content/releases/latest | jq -r '.tag_name' | sed 's/^v//'); \
          echo "Resolved latest SSG version from GitHub API: ${VER}"; \
@@ -58,10 +67,25 @@ RUN apk add --no-cache wget unzip jq \
        fi \
     && wget -q "https://github.com/ComplianceAsCode/content/releases/download/v${VER}/scap-security-guide-${VER}.zip" -O /tmp/ssg.zip \
     && mkdir -p /tmp/ssg-extract /ssg-content \
-    && unzip -q /tmp/ssg.zip -d /tmp/ssg-extract \
-    && find /tmp/ssg-extract -name 'ssg-*-ds.xml' -exec cp {} /ssg-content/ \; \
+    && unzip -o -j -q /tmp/ssg.zip '*/ssg-*-ds.xml' -d /ssg-content \
     && echo "${VER}" > /ssg-content/.ssg-version \
-    && rm -rf /tmp/ssg.zip /tmp/ssg-extract
+    && rm -rf /tmp/ssg.zip /tmp/ssg-extract \
+    && if [ -f /ssg-signatures/VERSION ] && [ "$(cat /ssg-signatures/VERSION)" = "${VER}" ]; then \
+         cp /ssg-signatures/*.minisig /ssg-content/; \
+       fi \
+    && if [ -n "${SSG_SIGNING_PUBLIC_KEY}" ]; then \
+         n=0; for f in /ssg-content/ssg-*-ds.xml; do \
+           name=$(basename "$f"); \
+           minisign -Vqm "$f" -P "${SSG_SIGNING_PUBLIC_KEY}" -x "$f.minisig" >/dev/null \
+             || { echo "ERROR: $name has no valid signature for SSG ${VER}" >&2; exit 1; }; \
+           [ "$(sed -n 3p "$f.minisig")" = "trusted comment: PatchMon SSG ${VER} $name" ] \
+             || { echo "ERROR: $name.minisig is not for SSG ${VER}" >&2; exit 1; }; \
+           n=$((n + 1)); \
+         done; \
+         echo "Verified signatures of $n SSG datastreams"; \
+       else \
+         echo "WARNING: SSG_SIGNING_PUBLIC_KEY not set; datastream signatures not checked at build time"; \
+       fi
 
 # Production stage — hardened Alpine runtime (no -dev; no shell/apk). Use 3.24 for production.
 FROM dhi.io/alpine-base:3.24

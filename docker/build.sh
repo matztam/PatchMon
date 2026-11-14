@@ -120,6 +120,7 @@ done
 
 echo "==> Building image patchmon-server:${IMAGE_TAG}"
 docker build \
+  --build-arg SSG_SIGNING_PUBLIC_KEY="${PATCHMON_SIGNING_PUBLIC_KEY:-}" \
   -f docker/server.Dockerfile \
   -t "patchmon-server:${IMAGE_TAG}" \
   .

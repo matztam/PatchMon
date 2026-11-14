@@ -2,6 +2,7 @@
 # Builds PatchMon with minisign-signed agents.
 #
 # Usage: ./build-signed.sh [--agents] [VERSION]
+#        ./build-signed.sh --ssg [SSG_VERSION]
 #   VERSION defaults to the nearest git tag (e.g. 2.1.8).
 #
 #   (default)  Builds the whole patchmon-server image locally.
@@ -9,6 +10,11 @@
 #              .minisig files, as an OCI artifact to PATCHMON_AGENTS_REPO:VERSION.
 #              A CI job can then build the image from them after verifying the
 #              signatures, so the private key never leaves this machine.
+#   --ssg      Downloads a ComplianceAsCode release (default: the latest),
+#              checks its SHA-512, signs every ssg-*-ds.xml datastream and
+#              writes the signatures and the pinned version to ssg-signatures/.
+#              Commit that directory; image builds then use exactly that
+#              release and agents only install datastreams that verify.
 #
 # Configuration, from the environment or from the file named by
 # PATCHMON_BUILD_ENV (default: ~/.config/patchmon/build.env):
@@ -35,11 +41,16 @@ if [ -f "$CONFIG" ]; then
 fi
 
 MODE=image
-if [ "${1:-}" = "--agents" ]; then
-  MODE=agents
-  shift
+case "${1:-}" in
+  --agents) MODE=agents; shift ;;
+  --ssg) MODE=ssg; shift ;;
+esac
+if [ "$MODE" = ssg ]; then
+  VERSION=${1:-$(curl -fsSL https://api.github.com/repos/ComplianceAsCode/content/releases/latest | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')}
+  printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "error: invalid SSG version '$VERSION'" >&2; exit 1; }
+else
+  VERSION=${1:-$(git describe --tags --abbrev=0 | sed 's/^v//')}
 fi
-VERSION=${1:-$(git describe --tags --abbrev=0 | sed 's/^v//')}
 
 PUBLIC_KEY=${PATCHMON_SIGNING_PUBLIC_KEY:-}
 PRIVATE_KEY=${PATCHMON_SIGNING_PRIVATE_KEY:-}
@@ -47,7 +58,7 @@ PRIVATE_KEY=${PATCHMON_SIGNING_PRIVATE_KEY:-}
 [ -n "$PRIVATE_KEY" ] || die "PATCHMON_SIGNING_PRIVATE_KEY is not set (see the header of $0)"
 [ -f "$PRIVATE_KEY" ] || die "private key not found: $PRIVATE_KEY"
 command -v minisign >/dev/null || die "minisign is not installed"
-command -v go >/dev/null || die "go is not installed (looked in /usr/local/go/bin and PATH)"
+[ "$MODE" = ssg ] || command -v go >/dev/null || die "go is not installed (looked in /usr/local/go/bin and PATH)"
 
 if [ "$MODE" = agents ]; then
   AGENTS_REPO=${PATCHMON_AGENTS_REPO:-}
@@ -104,6 +115,38 @@ fi
 echo "==> Key unlocked and matches $PUBLIC_KEY"
 
 export PATCHMON_SIGNING_PUBLIC_KEY=$PUBLIC_KEY PATCHMON_SIGNING_PRIVATE_KEY=$PRIVATE_KEY
+
+if [ "$MODE" = ssg ]; then
+  zip="scap-security-guide-$VERSION.zip"
+  base="https://github.com/ComplianceAsCode/content/releases/download/v$VERSION"
+  echo "==> Downloading $zip"
+  curl -fsSL "$base/$zip" -o "$tmpdir/$zip"
+  curl -fsSL "$base/$zip.sha512" -o "$tmpdir/$zip.sha512"
+  (cd "$tmpdir" && sha512sum -c "$zip.sha512" >/dev/null) || die "SHA-512 of $zip does not match the release"
+  echo "==> SHA-512 matches the release"
+  mkdir "$tmpdir/ds"
+  # Same extraction as docker/server.Dockerfile, so the signed bytes are the
+  # bytes the image ships.
+  unzip -o -j -q "$tmpdir/$zip" '*/ssg-*-ds.xml' -d "$tmpdir/ds"
+  out=ssg-signatures
+  mkdir -p "$out"
+  rm -f "$out"/*.minisig "$out/VERSION"
+  count=0
+  for f in "$tmpdir"/ds/ssg-*-ds.xml; do
+    name=$(basename "$f")
+    printf '%s\n' "$MINISIGN_PASSWORD" | minisign -S -s "$PRIVATE_KEY" -m "$f" \
+      -t "PatchMon SSG $VERSION $name" -x "$out/$name.minisig" >/dev/null \
+      || die "could not sign $name"
+    minisign -Vqm "$f" -P "$PUBLIC_KEY" -x "$out/$name.minisig" >/dev/null || die "bad signature: $name"
+    count=$((count + 1))
+  done
+  unset MINISIGN_PASSWORD
+  [ "$count" -gt 0 ] || die "no datastreams found in $zip"
+  echo "$VERSION" > "$out/VERSION"
+  echo "==> Done: signed $count datastreams of SSG $VERSION into $out/"
+  echo "    Commit $out/ so image builds pin SSG $VERSION and ship these signatures."
+  exit 0
+fi
 
 if [ "$MODE" = agents ]; then
   AGENTS_DIR=agent-source-code/build

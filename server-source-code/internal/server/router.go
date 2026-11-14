@@ -335,6 +335,7 @@ func NewRouter(ctx context.Context, cfg *config.Config, db *database.DB, rdb *re
 		r.With(middleware.RateLimit(redisResolver, cfgResolver, middleware.RateLimitAgent), middleware.BodyLimitFor(cfgResolver, func(rc *config.ResolvedConfig) int64 { return rc.ComplianceBodyLimitBytes })).Post("/compliance/scans", complianceHandler.ReceiveScans)
 		r.With(middleware.RateLimit(redisResolver, cfgResolver, middleware.RateLimitAgent)).Get("/compliance/ssg-version", complianceHandler.AgentSSGVersion)
 		r.With(middleware.RateLimit(redisResolver, cfgResolver, middleware.RateLimitAgent)).Get("/compliance/ssg-content/{filename}", complianceHandler.SSGContent)
+		r.With(middleware.RateLimit(redisResolver, cfgResolver, middleware.RateLimitAgent)).Get("/compliance/ssg-signature/{filename}", complianceHandler.SSGSignature) // fork: signed SCAP content
 		// Patching agent output (API key auth)
 		r.With(middleware.RateLimit(redisResolver, cfgResolver, middleware.RateLimitAgent)).Post("/patching/runs/{id}/output", patchingHandler.ServePatchOutput)
 		r.With(middleware.RateLimit(redisResolver, cfgResolver, middleware.RateLimitAgent)).Post("/patching/runs/{id}/items", patchingHandler.ServePatchItems)
